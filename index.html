@@ -19,7 +19,7 @@
             position: absolute;
             top: 20px;
             left: 20px;
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 165, 0, 0.95);
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
@@ -42,6 +42,7 @@
         }
         input[type="range"] {
             width: 100%;
+            accent-color: yellow;
         }
         .value-display {
             display: inline-block;
@@ -246,7 +247,7 @@
         function init() {
             // Scene
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x87CEEB);
+            scene.background = new THREE.Color(0x000000);
             scene.fog = new THREE.Fog(0x87CEEB, 50, 300);
             
             // Camera
