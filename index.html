@@ -1,40 +1,626 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Terrain Generator</title>
-
-<style>
-.title{
-text-align:center;
-color:white;
-font-size:20px;
-margin-top:10px;
-margin-bottom:10px;
-font-weight:bold;
-width:100%;
-background: black;
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Terrain Generator</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            background: #1a1a2e;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 165, 0, 0.95);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            max-width: 300px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #1a1a2e;
+            font-size: 18px;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 13px;
+            color: #333;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: yellow;
 }
+        }
+        .value-display {
+            display: inline-block;
+            float: right;
+            color: #666;
+            font-size: 12px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #ff0000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #cc0000;
+        }
+        #info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            font-size: 12px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    
+    <div id="controls">
+        <h2>Terrain Generator By Douglas Alfaro</h2>
+        
+        <div class="control-group">
+            <label>Scale (Frequency) <span class="value-display" id="scale-value">50</span></label>
+            <input type="range" id="scale" min="10" max="200" value="50" step="1">
+        </div>
+        
+        <div class="control-group">
+            <label>Amplitude (Height) <span class="value-display" id="amplitude-value">15</span></label>
+            <input type="range" id="amplitude" min="1" max="50" value="15" step="1">
+        </div>
+        
+        <div class="control-group">
+            <label>Octaves <span class="value-display" id="octaves-value">4</span></label>
+            <input type="range" id="octaves" min="1" max="8" value="4" step="1">
+        </div>
+        
+        <div class="control-group">
+            <label>Persistence <span class="value-display" id="persistence-value">0.5</span></label>
+            <input type="range" id="persistence" min="0.1" max="1" value="0.5" step="0.1">
+        </div>
+        
+        <div class="control-group">
+            <label>Lacunarity <span class="value-display" id="lacunarity-value">2.0</span></label>
+            <input type="range" id="lacunarity" min="1" max="4" value="2" step="0.1">
+        </div>
+        
+        <div class="control-group">
+            <label>Seed <span class="value-display" id="seed-value">1234</span></label>
+            <input type="range" id="seed" min="1" max="9999" value="1234" step="1">
+        </div>
+        
+        <button id="regenerate">Regenerate Terrain</button>
+        <button id="randomize">Randomize Parameters</button>
+        
+        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd;">
+            <h2 style="margin-bottom: 10px;">Audio Synthesis</h2>
+            <button id="playSound">Play Terrain as Sound</button>
+            <button id="stopSound">Stop Sound</button>
+            
+            <div class="control-group">
+                <label>Duration (seconds) <span class="value-display" id="duration-value">5</span></label>
+                <input type="range" id="duration" min="1" max="20" value="5" step="1">
+            </div>
+            
+            <div class="control-group">
+                <label>Base Frequency (Hz) <span class="value-display" id="baseFreq-value">220</span></label>
+                <input type="range" id="baseFreq" min="55" max="880" value="220" step="1">
+            </div>
+        </div>
+    </div>
+    
+    <div id="info">
+        Use mouse to rotate • Scroll to zoom • Drag to pan
+    </div>
 
-body{
-background:black;
-margin:0;
-font-family:Arial;
-}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Simple Perlin Noise implementation
+        class PerlinNoise {
+            constructor(seed = 0) {
+                this.seed = seed;
+                this.p = this.buildPermutationTable();
+            }
+            
+            buildPermutationTable() {
+                const p = [];
+                for (let i = 0; i < 256; i++) {
+                    p[i] = i;
+                }
+                
+                // Shuffle based on seed
+                let n = 256;
+                while (n > 1) {
+                    const k = Math.floor(this.seededRandom() * n--);
+                    const temp = p[n];
+                    p[n] = p[k];
+                    p[k] = temp;
+                }
+                
+                // Duplicate
+                for (let i = 0; i < 256; i++) {
+                    p[256 + i] = p[i];
+                }
+                
+                return p;
+            }
+            
+            seededRandom() {
+                const x = Math.sin(this.seed++) * 10000;
+                return x - Math.floor(x);
+            }
+            
+            fade(t) {
+                return t * t * t * (t * (t * 6 - 15) + 10);
+            }
+            
+            lerp(t, a, b) {
+                return a + t * (b - a);
+            }
+            
+            grad(hash, x, y) {
+                const h = hash & 15;
+                const u = h < 8 ? x : y;
+                const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
+                return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+            }
+            
+            noise(x, y) {
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+                
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                
+                const u = this.fade(x);
+                const v = this.fade(y);
+                
+                const a = this.p[X] + Y;
+                const aa = this.p[a];
+                const ab = this.p[a + 1];
+                const b = this.p[X + 1] + Y;
+                const ba = this.p[b];
+                const bb = this.p[b + 1];
+                
+                return this.lerp(v,
+                    this.lerp(u, this.grad(this.p[aa], x, y), this.grad(this.p[ba], x - 1, y)),
+                    this.lerp(u, this.grad(this.p[ab], x, y - 1), this.grad(this.p[bb], x - 1, y - 1))
+                );
+            }
+            
+            octaveNoise(x, y, octaves, persistence, lacunarity) {
+                let total = 0;
+                let frequency = 1;
+                let amplitude = 1;
+                let maxValue = 0;
+                
+                for (let i = 0; i < octaves; i++) {
+                    total += this.noise(x * frequency, y * frequency) * amplitude;
+                    maxValue += amplitude;
+                    amplitude *= persistence;
+                    frequency *= lacunarity;
+                }
+                
+                return total / maxValue;
+            }
+        }
 
-#ui{
-position:absolute;
-top:10px;
-left:10px;
-background:white;
-padding:12px;
-border-radius:10px;
-}
+        // Three.js Setup
+        let scene, camera, renderer, terrain, controls;
+        let noiseGenerator;
+        
+        const params = {
+            scale: 50,
+            amplitude: 15,
+            octaves: 4,
+            persistence: 0.5,
+            lacunarity: 2.0,
+            seed: 1234,
+            resolution: 100
+        };
 
-.slider{
-accent-color:yellow;
-width:160px;
-}
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            scene.fog = new THREE.Fog(0x87CEEB, 50, 300);
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 50, 80);
+            camera.lookAt(0, 0, 0);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 100, 50);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+            
+            const directionalLight2 = new THREE.DirectionalLight(0x6495ED, 0.3);
+            directionalLight2.position.set(-50, 50, -50);
+            scene.add(directionalLight2);
+            
+            // Simple mouse controls
+            setupControls();
+            
+            // Generate initial terrain
+            generateTerrain();
+            
+            // Window resize
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start animation
+            animate();
+        }
+
+        function generateTerrain() {
+            // Remove old terrain
+            if (terrain) {
+                scene.remove(terrain);
+                terrain.geometry.dispose();
+                terrain.material.dispose();
+            }
+            
+            noiseGenerator = new PerlinNoise(params.seed);
+            
+            const geometry = new THREE.PlaneGeometry(
+                100, 100, 
+                params.resolution - 1, 
+                params.resolution - 1
+            );
+            
+            const vertices = geometry.attributes.position.array;
+            
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i];
+                const y = vertices[i + 1];
+                
+                const height = noiseGenerator.octaveNoise(
+                    x / params.scale,
+                    y / params.scale,
+                    params.octaves,
+                    params.persistence,
+                    params.lacunarity
+                ) * params.amplitude;
+                
+                vertices[i + 2] = height;
+            }
+            
+            geometry.computeVertexNormals();
+            
+            // Color based on height
+            const colors = [];
+            for (let i = 0; i < vertices.length; i += 3) {
+                const height = vertices[i + 2];
+                const color = new THREE.Color();
+                
+                if (height < 2) {
+                    color.setHex(0x8B7355); // Brown (low)
+                } else if (height < 8) {
+                    color.setHex(0x228B22); // Forest green
+                } else if (height < 15) {
+                    color.setHex(0x90EE90); // Light green
+                } else {
+                    color.setHex(0xFFFFFF); // White (peaks)
+                }
+                
+                colors.push(color.r, color.g, color.b);
+            }
+            
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            
+            const material = new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                flatShading: true,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            
+            terrain = new THREE.Mesh(geometry, material);
+            terrain.rotation.x = -Math.PI / 2;
+            terrain.receiveShadow = true;
+            scene.add(terrain);
+        }
+
+        function setupControls() {
+            let isDragging = false;
+            let previousMousePosition = { x: 0, y: 0 };
+            
+            renderer.domElement.addEventListener('mousedown', (e) => {
+                isDragging = true;
+            });
+            
+            renderer.domElement.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaX = e.offsetX - previousMousePosition.x;
+                    const deltaY = e.offsetY - previousMousePosition.y;
+                    
+                    camera.position.x -= deltaX * 0.1;
+                    camera.position.z -= deltaY * 0.1;
+                }
+                previousMousePosition = { x: e.offsetX, y: e.offsetY };
+            });
+            
+            renderer.domElement.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+            
+            renderer.domElement.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                camera.position.y += e.deltaY * 0.05;
+                camera.position.y = Math.max(10, Math.min(200, camera.position.y));
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Slow rotation
+            if (terrain) {
+                terrain.rotation.z += 0.001;
+            }
+            
+            camera.lookAt(0, 0, 0);
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // UI Controls
+        function setupUI() {
+            const sliders = {
+                scale: document.getElementById('scale'),
+                amplitude: document.getElementById('amplitude'),
+                octaves: document.getElementById('octaves'),
+                persistence: document.getElementById('persistence'),
+                lacunarity: document.getElementById('lacunarity'),
+                seed: document.getElementById('seed')
+            };
+            
+            Object.keys(sliders).forEach(key => {
+                sliders[key].addEventListener('input', (e) => {
+                    params[key] = parseFloat(e.target.value);
+                    document.getElementById(`${key}-value`).textContent = params[key];
+                });
+            });
+            
+            document.getElementById('regenerate').addEventListener('click', () => {
+                generateTerrain();
+            });
+            
+            document.getElementById('randomize').addEventListener('click', () => {
+                params.scale = Math.random() * 180 + 20;
+                params.amplitude = Math.random() * 40 + 10;
+                params.octaves = Math.floor(Math.random() * 7) + 1;
+                params.persistence = Math.random() * 0.9 + 0.1;
+                params.lacunarity = Math.random() * 3 + 1;
+                params.seed = Math.floor(Math.random() * 9999);
+                
+                Object.keys(sliders).forEach(key => {
+                    sliders[key].value = params[key];
+                    document.getElementById(`${key}-value`).textContent = params[key].toFixed(1);
+                });
+                
+                generateTerrain();
+            });
+        }
+
+        // Initialize
+        init();
+        setupUI();
+        
+        // Audio Synthesis
+        let audioContext;
+        let isPlaying = false;
+        let audioNodes = [];
+        
+        const audioParams = {
+            duration: 5,
+            baseFreq: 220
+        };
+        
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+        
+        function stopAudio() {
+            audioNodes.forEach(node => {
+                if (node.stop) node.stop();
+                if (node.disconnect) node.disconnect();
+            });
+            audioNodes = [];
+            isPlaying = false;
+        }
+        
+        function playTerrainAsSound() {
+            if (isPlaying) {
+                stopAudio();
+            }
+            
+            initAudio();
+            isPlaying = true;
+            
+            const now = audioContext.currentTime;
+            const duration = audioParams.duration;
+            
+            // Map terrain parameters to audio synthesis
+            // Use the same noise generator to create frequency modulation
+            
+            // Main oscillator - frequency determined by base frequency
+            const mainOsc = audioContext.createOscillator();
+            mainOsc.type = 'sine';
+            mainOsc.frequency.setValueAtTime(audioParams.baseFreq, now);
+            
+            // Create frequency modulation using noise parameters
+            // Sample noise values over time to create evolving timbre
+            const samplePoints = 100;
+            const timeStep = duration / samplePoints;
+            
+            for (let i = 0; i < samplePoints; i++) {
+                const t = now + (i * timeStep);
+                const noiseX = i / params.scale;
+                
+                // Use the terrain's noise to modulate frequency
+                const noiseValue = noiseGenerator.octaveNoise(
+                    noiseX,
+                    0,
+                    params.octaves,
+                    params.persistence,
+                    params.lacunarity
+                );
+                
+                // Map noise (-1 to 1) to frequency deviation
+                const freqDeviation = noiseValue * audioParams.baseFreq * 0.5;
+                mainOsc.frequency.linearRampToValueAtTime(
+                    audioParams.baseFreq + freqDeviation,
+                    t
+                );
+            }
+            
+            // Create harmonic content based on octaves
+            const harmonicOscs = [];
+            for (let i = 1; i <= Math.min(params.octaves, 4); i++) {
+                const harmOsc = audioContext.createOscillator();
+                harmOsc.type = 'sine';
+                
+                const harmGain = audioContext.createGain();
+                harmGain.gain.setValueAtTime(
+                    Math.pow(params.persistence, i) * 0.3,
+                    now
+                );
+                
+                // Harmonic frequencies
+                harmOsc.frequency.setValueAtTime(
+                    audioParams.baseFreq * Math.pow(params.lacunarity, i),
+                    now
+                );
+                
+                // Modulate harmonics with noise
+                for (let j = 0; j < samplePoints; j++) {
+                    const t = now + (j * timeStep);
+                    const noiseX = j / (params.scale / Math.pow(params.lacunarity, i));
+                    
+                    const noiseValue = noiseGenerator.noise(noiseX, i * 0.5);
+                    const freqDev = noiseValue * audioParams.baseFreq * 0.25;
+                    
+                    harmOsc.frequency.linearRampToValueAtTime(
+                        audioParams.baseFreq * Math.pow(params.lacunarity, i) + freqDev,
+                        t
+                    );
+                }
+                
+                harmOsc.connect(harmGain);
+                harmonicOscs.push({ osc: harmOsc, gain: harmGain });
+                audioNodes.push(harmOsc, harmGain);
+            }
+            
+            // Master gain with envelope
+            const masterGain = audioContext.createGain();
+            masterGain.gain.setValueAtTime(0, now);
+            masterGain.gain.linearRampToValueAtTime(0.3, now + 0.1); // Attack
+            masterGain.gain.linearRampToValueAtTime(0.2, now + 0.3); // Decay
+            masterGain.gain.setValueAtTime(0.2, now + duration - 0.5); // Sustain
+            masterGain.gain.linearRampToValueAtTime(0, now + duration); // Release
+            
+            // Filter to shape the tone
+            const filter = audioContext.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(1000, now);
+            
+            // Modulate filter with amplitude parameter
+            filter.frequency.linearRampToValueAtTime(
+                500 + (params.amplitude * 50),
+                now + duration
+            );
+            
+            // Connect main oscillator
+            mainOsc.connect(filter);
+            
+            // Connect harmonics
+            harmonicOscs.forEach(({ osc, gain }) => {
+                gain.connect(filter);
+            });
+            
+            filter.connect(masterGain);
+            masterGain.connect(audioContext.destination);
+            
+            // Start all oscillators
+            mainOsc.start(now);
+            harmonicOscs.forEach(({ osc }) => osc.start(now));
+            
+            // Stop all after duration
+            mainOsc.stop(now + duration);
+            harmonicOscs.forEach(({ osc }) => osc.stop(now + duration));
+            
+            audioNodes.push(mainOsc, filter, masterGain);
+            
+            // Reset playing state after duration
+            setTimeout(() => {
+                isPlaying = false;
+            }, duration * 1000);
+        }
+        
+        // Audio UI setup
+        document.getElementById('duration').addEventListener('input', (e) => {
+            audioParams.duration = parseFloat(e.target.value);
+            document.getElementById('duration-value').textContent = audioParams.duration;
+        });
+        
+        document.getElementById('baseFreq').addEventListener('input', (e) => {
+            audioParams.baseFreq = parseFloat(e.target.value);
+            document.getElementById('baseFreq-value').textContent = audioParams.baseFreq;
+        });
+        
+        document.getElementById('playSound').addEventListener('click', () => {
+            playTerrainAsSound();
+        });
+        
+        document.getElementById('stopSound').addEventListener('click', () => {
+            stopAudio();
+        });
+    </script>
+</body>
+</html>}
 
 button{
 background:red;
@@ -289,3 +875,4 @@ animate()
 
 </body>
 </html>
+
