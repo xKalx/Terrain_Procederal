@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Terrain Generator</title>
+
+<style>
+.title{
+text-align:center;
+color:white;
+font-size:20px;
+margin-top:10px;
+margin-bottom:10px;
+font-weight:bold;
+width:100%;
+background: black;
+}
+
+body{
+background:black;
+margin:0;
+font-family:Arial;
+}
+
+#ui{
+position:absolute;
+top:10px;
+left:10px;
+background:white;
+padding:12px;
+border-radius:10px;
+}
+
+.slider{
+accent-color:yellow;
+width:160px;
+}
+
+button{
+background:red;
+color:white;
+border:none;
+padding:8px;
+margin-top:6px;
+cursor:pointer;
+}
+
+button:hover{
+background:pink;
+color:black;
+}
+
+</style>
+
+</head>
+
+<body>
+<h1 class="title">Terrain Procederal Generator</h1>
+<h2 class="title">By Douglas Alfaro</h2>
+<h2 class="title">Grass Land</h2>
+
+<div id="ui">
+
+Scale<br>
+<input class="slider" id="scale" type="range" min="10" max="120" value="50"><br>
+
+Height<br>
+<input class="slider" id="height" type="range" min="5" max="50" value="25"><br>
+
+Octaves<br>
+<input class="slider" id="octaves" type="range" min="1" max="8" value="4"><br>
+
+Persistence<br>
+<input class="slider" id="persistence" type="range" min="0.2" max="0.9" step="0.05" value="0.5"><br>
+
+Lacunarity<br>
+<input class="slider" id="lacunarity" type="range" min="1.5" max="4" step="0.1" value="2"><br>
+
+Seed<br>
+<input id="seed" type="number" value="1234"><br>
+
+<button onclick="generateTerrain()">Generate Terrain</button>
+<button onclick="randomize()">Randomize Parameters</button>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+
+// Scene setup
+let scene = new THREE.Scene()
+
+let camera = new THREE.PerspectiveCamera(
+75,
+window.innerWidth/window.innerHeight,
+0.1,
+1000
+)
+
+let renderer = new THREE.WebGLRenderer({antialias:true})
+renderer.setSize(window.innerWidth,window.innerHeight)
+document.body.appendChild(renderer.domElement)
+
+camera.position.set(80,80,80)
+
+let controls = new THREE.OrbitControls(camera, renderer.domElement)
+
+// Lighting
+let light = new THREE.DirectionalLight(0xffffff,1)
+light.position.set(50,100,50)
+scene.add(light)
+
+scene.add(new THREE.AmbientLight(0x888888))
+
+let terrain
+
+// Seeded random generator
+function RNG(seed){
+
+return function(){
+seed = (seed * 9301 + 49297) % 233280
+return seed / 233280
+}
+
+}
+
+// Create permutation table for Perlin noise
+function createPermutation(seed){
+
+let rand = RNG(seed)
+let p = []
+
+for(let i=0;i<256;i++) p[i]=i
+
+for(let i=255;i>0;i--){
+let j=Math.floor(rand()*(i+1))
+let temp=p[i]
+p[i]=p[j]
+p[j]=temp
+}
+
+return p.concat(p)
+
+}
+
+// Perlin helpers
+function fade(t){ return t*t*t*(t*(t*6-15)+10) }
+function lerp(a,b,t){ return a + t*(b-a) }
+
+function grad(hash,x,y){
+
+let h = hash & 3
+let u = h<2 ? x : y
+let v = h<2 ? y : x
+
+return ((h&1)?-u:u)+((h&2)?-v:v)
+
+}
+
+function perlin(x,y,p){
+
+let X=Math.floor(x)&255
+let Y=Math.floor(y)&255
+
+x-=Math.floor(x)
+y-=Math.floor(y)
+
+let u=fade(x)
+let v=fade(y)
+
+let aa=p[p[X]+Y]
+let ab=p[p[X]+Y+1]
+let ba=p[p[X+1]+Y]
+let bb=p[p[X+1]+Y+1]
+
+return lerp(
+lerp(grad(aa,x,y),grad(ba,x-1,y),u),
+lerp(grad(ab,x,y-1),grad(bb,x-1,y-1),u),
+v
+)
+
+}
+
+// Fractal noise
+function fractalNoise(x,y,oct,persistence,lacunarity,p){
+
+let amplitude=1
+let frequency=1
+let total=0
+let max=0
+
+for(let i=0;i<oct;i++){
+
+total += perlin(x*frequency,y*frequency,p)*amplitude
+max += amplitude
+
+amplitude*=persistence
+frequency*=lacunarity
+
+}
+
+return total/max
+
+}
+
+// Terrain generation
+function generateTerrain(){
+
+if(terrain) scene.remove(terrain)
+
+let scale = parseFloat(scaleSlider.value)
+let height = parseFloat(heightSlider.value)
+let octaves = parseInt(octavesSlider.value)
+let persistence = parseFloat(persistenceSlider.value)
+let lacunarity = parseFloat(lacunaritySlider.value)
+let seed = parseInt(seedInput.value)
+
+let perm = createPermutation(seed)
+
+let geometry = new THREE.PlaneGeometry(200,200,200,200)
+geometry.rotateX(-Math.PI/2)
+
+let vertices = geometry.attributes.position
+
+for(let i=0;i<vertices.count;i++){
+
+let x=vertices.getX(i)/scale
+let z=vertices.getZ(i)/scale
+
+let y=fractalNoise(x,z,octaves,persistence,lacunarity,perm)*height
+
+vertices.setY(i,y)
+
+}
+
+geometry.computeVertexNormals()
+
+let material = new THREE.MeshStandardMaterial({
+color:0x55aa55,
+flatShading:false
+})
+
+terrain = new THREE.Mesh(geometry,material)
+
+scene.add(terrain)
+
+}
+
+// Randomizer
+function randomize(){
+
+scaleSlider.value = Math.floor(Math.random()*100)+20
+heightSlider.value = Math.floor(Math.random()*40)+10
+octavesSlider.value = Math.floor(Math.random()*6)+2
+persistenceSlider.value = (Math.random()*0.6+0.3).toFixed(2)
+lacunaritySlider.value = (Math.random()*2+1.5).toFixed(2)
+seedInput.value = Math.floor(Math.random()*10000)
+
+generateTerrain()
+
+}
+
+// Controls
+const scaleSlider=document.getElementById("scale")
+const heightSlider=document.getElementById("height")
+const octavesSlider=document.getElementById("octaves")
+const persistenceSlider=document.getElementById("persistence")
+const lacunaritySlider=document.getElementById("lacunarity")
+const seedInput=document.getElementById("seed")
+
+generateTerrain()
+
+// Render loop
+function animate(){
+
+requestAnimationFrame(animate)
+
+controls.update()
+
+renderer.render(scene,camera)
+
+}
+
+animate()
+
+</script>
+
+</body>
+</html>
